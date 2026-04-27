@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Williams Spell Checker</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        .header h1 { font-size: 2.5em; margin-bottom: 5px; }
+        .header p { opacity: 0.9; }
+        .content { padding: 30px; }
+        .editor-section {
+            margin-bottom: 30px;
+        }
+        #text-editor {
+            width: 100%;
+            min-height: 250px;
+            padding: 15px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+            font-family: 'Courier New', monospace;
+            outline: none;
+            resize: vertical;
+        }
+        #text-editor:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        .spell-error {
+            background-color: #ff6b6b;
+            color: white;
+            padding: 2px 4px;
+            border-radius: 3px;
+            font-weight: bold;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            margin-top: 20px;
+            margin-bottom: 20px;
+        }
+        .stat {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #667eea;
+        }
+        .stat-label {
+            font-size: 12px;
+            color: #999;
+            margin-top: 5px;
+        }
+        .buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        button {
+            flex: 1;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .btn-check {
+            background: #667eea;
+            color: white;
+        }
+        .btn-check:hover { background: #5568d3; }
+        .btn-correct {
+            background: #51cf66;
+            color: white;
+        }
+        .btn-correct:hover { background: #40c057; }
+        .btn-clear {
+            background: #ff8787;
+            color: white;
+        }
+        .btn-clear:hover { background: #ff6b6b; }
+        #results-section {
+            display: none;
+            margin-top: 30px;
+            padding: 20px;
+            background: #f9f9f9;
+            border-radius: 8px;
+            border-left: 4px solid #51cf66;
+        }
+        #results-section h3 {
+            margin-bottom: 15px;
+            color: #333;
+        }
+        #corrected-text {
+            background: white;
+            padding: 15px;
+            border-radius: 6px;
+            border: 1px solid #ddd;
+            min-height: 100px;
+            word-wrap: break-word;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>✨ Williams Spell Checker</h1>
+            <p>Real-time spell checking and auto-correction</p>
+        </div>
+        <div class="content">
+            <div class="editor-section">
+                <h2>📝 Your Text</h2>
+                <div id="text-editor" contenteditable="true" spellcheck="false"></div>
+                
+                <div class="stats">
+                    <div class="stat">
+                        <div class="stat-value" id="word-count">0</div>
+                        <div class="stat-label">Words</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value" id="char-count">0</div>
+                        <div class="stat-label">Characters</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value" id="error-count">0</div>
+                        <div class="stat-label">Errors</div>
+                    </div>
+                </div>
+
+                <div class="buttons">
+                    <button class="btn-check" onclick="checkSpelling()">🔍 Check Spelling</button>
+                    <button class="btn-correct" onclick="autoCorrect()">✨ Auto Correct</button>
+                    <button class="btn-clear" onclick="clearText()">🗑️ Clear</button>
+                </div>
+            </div>
+
+            <div id="results-section">
+                <h3>✅ Corrected Text</h3>
+                <div id="corrected-text"></div>
+            </div>
+        </div>
+    </div>
+
+<script>
+let spellCheckData = {};
+let typingTimer;
+
+const editor = document.getElementById('text-editor');
+const wordCount = document.getElementById('word-count');
+const charCount = document.getElementById('char-count');
+const errorCount = document.getElementById('error-count');
+
+// =====================
+// LIVE TYPING LISTENER
+// =====================
+editor.addEventListener('input', () => {
+    updateStats();
+
+    clearTimeout(typingTimer);
+
+    typingTimer = setTimeout(() => {
+        checkSpellingLive();
+    }, 600); // wait after user stops typing
+});
+
+// =====================
+// UPDATE STATS
+// =====================
+function updateStats() {
+    const text = editor.textContent || '';
+    const words = text.trim() ? text.trim().split(/\s+/).length : 0;
+
+    wordCount.textContent = words;
+    charCount.textContent = text.length;
+}
+
+// =====================
+// LIVE SPELL CHECK
+// =====================
+function checkSpellingLive() {
+    const text = editor.textContent || '';
+    if (!text.trim()) return;
+
+    fetch('/api/spellcheck', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text })
+    })
+    .then(res => res.json())
+    .then(data => {
+        spellCheckData = data;
+
+        highlightErrors(data);
+        updateErrorCount(data);
+
+        autoCorrectLive(); // 🔥 auto correct immediately
+    })
+    .catch(err => console.error(err));
+}
+
+// =====================
+// AUTO CORRECT LIVE
+// =====================
+function autoCorrectLive() {
+    let text = editor.textContent;
+
+    if (!spellCheckData || Object.keys(spellCheckData).length === 0) return;
+
+    let correctedText = text;
+
+    Object.keys(spellCheckData).forEach(word => {
+        const suggestions = spellCheckData[word].suggestions;
+
+        if (suggestions && suggestions.length > 0) {
+            const regex = new RegExp(`\\b${word}\\b`, 'gi');
+            correctedText = correctedText.replace(regex, suggestions[0]);
+        }
+    });
+
+    if (correctedText !== text) {
+        editor.textContent = correctedText;
+
+        // Show result below too
+        document.getElementById('corrected-text').textContent = correctedText;
+        document.getElementById('results-section').style.display = 'block';
+    }
+}
+
+// =====================
+// HIGHLIGHT ERRORS
+// =====================
+function highlightErrors(data) {
+    const text = editor.textContent;
+    let html = text;
+
+    const sortedErrors = Object.keys(data).sort((a, b) => b.length - a.length);
+
+    sortedErrors.forEach(word => {
+        const regex = new RegExp(`\\b${word}\\b`, 'gi');
+        html = html.replace(
+            regex,
+            `<span class="spell-error">${word}</span>`
+        );
+    });
+
+    editor.innerHTML = html;
+}
+
+// =====================
+// ERROR COUNT
+// =====================
+function updateErrorCount(data) {
+    errorCount.textContent = Object.keys(data).length;
+}
+
+// =====================
+// MANUAL BUTTONS (optional)
+// =====================
+function checkSpelling() {
+    checkSpellingLive();
+}
+
+function autoCorrect() {
+    const text = editor.textContent || '';
+    if (!text.trim()) {
+        alert('Please enter some text to correct.');
+        return;
+    }
+
+    // Show loading
+    const correctBtn = document.querySelector('button[onclick="autoCorrect()"]');
+    correctBtn.innerHTML = '<div class="loading"></div> Correcting...';
+    correctBtn.disabled = true;
+
+    fetch('/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({
+            'text': text
+        })
+    })
+    .then(response => response.text())
+    .then(html => {
+        // Extract corrected text from response
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+        const correctedElement = doc.getElementById('corrected-text');
+
+        if (correctedElement && correctedElement.textContent.trim()) {
+            // Replace the editor text with the corrected text
+            editor.textContent = correctedElement.textContent;
+            document.getElementById('results-section').style.display = 'block';
+            document.getElementById('corrected-text').textContent = correctedElement.textContent;
+        }
+
+        correctBtn.innerHTML = '✨ Auto Correct';
+        correctBtn.disabled = false;
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        correctBtn.innerHTML = '✨ Auto Correct';
+        correctBtn.disabled = false;
+        alert('Error auto-correcting. Please try again.');
+    });
+}
+
+// =====================
+// CLEAR
+// =====================
+function clearText() {
+    editor.textContent = '';
+    document.getElementById('results-section').style.display = 'none';
+    spellCheckData = {};
+    updateStats();
+    updateErrorCount({});
+}
+
+// Init
+updateStats();
+</script>
+</body>
+</html>
+</script>
